@@ -1,0 +1,4 @@
+config.h
+tiny_c
+.tiny_c_session.jsonl
+*.o
