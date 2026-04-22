@@ -9,7 +9,7 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <curl/curl.h>
-#include <cjson/cJSON.h>
+#include "tinyjson.h"
 
 #include "config.h"
 

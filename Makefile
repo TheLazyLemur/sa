@@ -10,8 +10,8 @@ endif
 
 CFLAGS  = -Wall -Wextra -Os -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -ffunction-sections -fdata-sections \
-          $(shell curl-config --cflags) $(shell pkg-config --cflags libcjson)
-LDLIBS  = $(shell curl-config --libs) $(shell pkg-config --libs libcjson)
+          $(shell curl-config --cflags)
+LDLIBS  = $(shell curl-config --libs)
 
 tiny_c: main.c config.h
 	$(CC) $(CFLAGS) $(LDFLAGS) main.c -o $@ $(LDLIBS)
