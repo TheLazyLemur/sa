@@ -60,8 +60,6 @@ static const char *cJSON_GetStringValue(const cJSON *item);
 static int cJSON_IsNumber(const cJSON *item);
 static int cJSON_IsArray(const cJSON *item);
 static int cJSON_IsString(const cJSON *item);
-static int cJSON_IsBool(const cJSON *item);
-static int cJSON_IsTrue(const cJSON *item);
 
 /* ---- Mutate ---- */
 static char *cJSON_SetValuestring(cJSON *item, const char *valuestring);
@@ -189,8 +187,6 @@ static const char *cJSON_GetStringValue(const cJSON *item) {
 static int cJSON_IsNumber(const cJSON *item) { return item && item->type == cJSON_Number; }
 static int cJSON_IsArray(const cJSON *item)  { return item && item->type == cJSON_Array; }
 static int cJSON_IsString(const cJSON *item) { return item && item->type == cJSON_String; }
-static int cJSON_IsBool(const cJSON *item)   { return item && (item->type == cJSON_True || item->type == cJSON_False); }
-static int cJSON_IsTrue(const cJSON *item)   { return item && item->type == cJSON_True; }
 
 static char *cJSON_SetValuestring(cJSON *item, const char *v) {
     if (!item || item->type != cJSON_String) return NULL;
