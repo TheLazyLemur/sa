@@ -259,7 +259,7 @@ static int http_post_sse(const char *url, const char *api_key, const char *body,
     int rl = snprintf(req, sizeof req,
         "POST %s HTTP/1.1\r\n"
         "Host: %s\r\n"
-        "User-Agent: tiny_c/0.1\r\n"
+        "User-Agent: sa/0.1\r\n"
         "Content-Type: application/json\r\n"
         "Accept: text/event-stream\r\n"
         "Anthropic-Version: 2023-06-01\r\n"
@@ -1234,7 +1234,7 @@ int main(int argc, char **argv) {
         rc = chat_turn(url, api_key, model, system_prompt, messages, tools);
     } else {
         int is_tty = isatty(fileno(stdin));
-        if (is_tty) fprintf(stderr, "tiny_c %s — Ctrl+D to exit, Ctrl+C to interrupt\n", model);
+        if (is_tty) fprintf(stderr, "sa %s — Ctrl+D to exit, Ctrl+C to interrupt\n", model);
         char line[8192];
         for (;;) {
             if (is_tty) { fputs("\n\x1b[1;36m› \x1b[0m", stderr); fflush(stderr); }

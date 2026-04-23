@@ -1,13 +1,13 @@
-/* tiny_c compile-time configuration.
+/* sa compile-time configuration.
    Copy this to config.h and edit. The Makefile auto-copies on first build. */
-#ifndef TINY_C_CONFIG_H
-#define TINY_C_CONFIG_H
+#ifndef SA_CONFIG_H
+#define SA_CONFIG_H
 
 /* Base system prompt — prepended before CLAUDE.md, rules, skills. */
 #define BASE_SYSTEM "You are a concise assistant. Use the shell tool for system questions. Keep replies short."
 
 /* Session JSONL filename, written in CWD. */
-#define SESSION_PATH ".tiny_c_session.jsonl"
+#define SESSION_PATH ".sa_session.jsonl"
 
 /* Max skills loaded from ~/.claude/skills + ./.claude/skills combined. */
 #define MAX_SKILLS 128

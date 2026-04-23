@@ -1,4 +1,4 @@
-# tiny_c
+# sa
 
 A suckless-style streaming agent in C. One binary, one config file, no runtime.
 
@@ -35,13 +35,13 @@ Runtime via environment:
 ## Use
 
 ```sh
-tiny_c "find all TODO comments in this repo"   # one-shot
-tiny_c                                          # REPL
-tiny_c -c                                       # resume REPL from .tiny_c_session.jsonl
-tiny_c -c "continue"                            # resume + one-shot
+sa "find all TODO comments in this repo"   # one-shot
+sa                                          # REPL
+sa -c                                       # resume REPL from .sa_session.jsonl
+sa -c "continue"                            # resume + one-shot
 ```
 
-Ctrl+C interrupts the current turn (returns to REPL prompt). Ctrl+D exits. `rm .tiny_c_session.jsonl` to truly clear history.
+Ctrl+C interrupts the current turn (returns to REPL prompt). Ctrl+D exits. `rm .sa_session.jsonl` to truly clear history.
 
 ## Context loading
 

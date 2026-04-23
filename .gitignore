@@ -4,3 +4,4 @@ tiny_c
 *.o
 bearssl/build/
 bearssl/obj/
+/sa

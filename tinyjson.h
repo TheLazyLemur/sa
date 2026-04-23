@@ -1,5 +1,5 @@
 /* tinyjson.h — minimal cJSON-compatible JSON implementation, single-header.
-   Zero dep. Supports only what tiny_c uses. */
+   Zero dep. Supports only what sa uses. */
 #ifndef TINYJSON_H
 #define TINYJSON_H
 

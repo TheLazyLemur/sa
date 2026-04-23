@@ -1,0 +1,61 @@
+diff --git a/main.c b/main.c
+index 2c63999..d3fbba9 100644
+--- a/main.c
++++ b/main.c
+@@ -22,8 +22,32 @@
+ 
+ static volatile sig_atomic_t g_interrupt = 0;
+ static int g_debug = 0;
++static int g_allow_shell = 0, g_allow_edit = 0;
++static FILE *g_tty = NULL;
+ static void on_sigint(int sig) { (void)sig; g_interrupt = 1; }
+ 
++static int confirm_tool(const char *name, const char *preview) {
++    if (getenv("SA_NO_CONFIRM")) return 1;
++    if (strcmp(name, "shell") == 0 && g_allow_shell) return 1;
++    if (strcmp(name, "edit_file") == 0 && g_allow_edit) return 1;
++    if (!g_tty) g_tty = fopen("/dev/tty", "r+");
++    if (!g_tty) { fprintf(stderr, "\n[confirm] no tty, denying %s (set SA_NO_CONFIRM=1 to skip)\n", name); return 0; }
++    for (;;) {
++        fprintf(g_tty, "\n\x1b[33m[%s]\x1b[0m %s\napprove? [y]es / [n]o / [a]lways: ", name, preview);
++        fflush(g_tty);
++        char line[16];
++        if (!fgets(line, sizeof line, g_tty)) return 0;
++        switch (line[0]) {
++            case 'y': case 'Y': case '\n': return 1;
++            case 'n': case 'N': return 0;
++            case 'a': case 'A':
++                if (strcmp(name, "shell") == 0) g_allow_shell = 1;
++                else if (strcmp(name, "edit_file") == 0) g_allow_edit = 1;
++                return 1;
++        }
++    }
++}
++
+ /* --- buf_t --- */
+ typedef struct { char *data; size_t len, cap; } buf_t;
+ 
+@@ -1041,6 +1065,7 @@ static int chat_turn(const char *url, const char *api_key, const char *model,
+             if (strcmp(b->name, "shell") == 0) {
+                 const char *cmd = cJSON_GetStringValue(cJSON_GetObjectItem(input, "cmd"));
+                 if (!cmd) out = strdup("error: shell requires cmd");
++                else if (!confirm_tool("shell", cmd)) out = strdup("error: denied by user");
+                 else {
+                     fprintf(stderr, "\n\x1b[2m[shell] %s\x1b[0m\n", cmd);
+                     out = run_shell(cmd);
+@@ -1051,8 +1076,13 @@ static int chat_turn(const char *url, const char *api_key, const char *model,
+                 const char *ns = cJSON_GetStringValue(cJSON_GetObjectItem(input, "new_string"));
+                 if (!path || !os || !ns) out = strdup("error: edit_file requires path, old_string, new_string");
+                 else {
+-                    fprintf(stderr, "\n\x1b[2m[edit_file] %s (%s)\x1b[0m\n", path, os[0] ? "replace" : "write");
+-                    out = edit_file_tool(path, os, ns);
++                    char preview[512];
++                    snprintf(preview, sizeof preview, "%s (%s)", path, os[0] ? "replace" : "write");
++                    if (!confirm_tool("edit_file", preview)) out = strdup("error: denied by user");
++                    else {
++                        fprintf(stderr, "\n\x1b[2m[edit_file] %s (%s)\x1b[0m\n", path, os[0] ? "replace" : "write");
++                        out = edit_file_tool(path, os, ns);
++                    }
+                 }
+             } else if (strcmp(b->name, "read_file") == 0) {
+                 const char *path = cJSON_GetStringValue(cJSON_GetObjectItem(input, "path"));

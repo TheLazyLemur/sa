@@ -14,7 +14,7 @@ CFLAGS  = -Wall -Wextra -Os -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -Ibearssl/inc
 LDLIBS  = bearssl/build/libbearssl.a
 
-tiny_c: main.c config.h ca.h bearssl/build/libbearssl.a
+sa: main.c config.h ca.h bearssl/build/libbearssl.a
 	$(CC) $(CFLAGS) $(LDFLAGS) main.c -o $@ $(LDLIBS)
 	strip $@
 
@@ -29,15 +29,15 @@ bearssl/build/brssl: bearssl/build/libbearssl.a
 ca.h: bearssl/build/brssl
 	./bearssl/build/brssl ta $(CA_PEM) > $@
 
-install: tiny_c
+install: sa
 	install -d $(DESTDIR)$(PREFIX)/bin
-	install -m 755 tiny_c $(DESTDIR)$(PREFIX)/bin/
+	install -m 755 sa $(DESTDIR)$(PREFIX)/bin/
 
 uninstall:
-	rm -f $(DESTDIR)$(PREFIX)/bin/tiny_c
+	rm -f $(DESTDIR)$(PREFIX)/bin/sa
 
 clean:
-	rm -f tiny_c
+	rm -f sa
 	cd bearssl && $(MAKE) clean
 
 .PHONY: clean install uninstall

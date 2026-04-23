@@ -1,4 +1,4 @@
-# tiny_c — roadmap
+# sa — roadmap
 
 Minimal suckless-style agent in C. One binary, one config file, no runtime.
 
@@ -114,7 +114,7 @@ Done:
 - Portable Makefile: macOS uses `-Wl,-dead_strip`; Linux uses `-Wl,--gc-sections`; `strip` post-build on both
 - `README.md` with per-distro build instructions (macOS / Debian / Alpine / Arch)
 - `patches/` directory with `README.md` documenting the planned diffs
-- `.gitignore` for `config.h`, `tiny_c` binary, session file
+- `.gitignore` for `config.h`, `sa` binary, session file
 
 Pending:
 - Homebrew formula — requires a public tarball/git URL. Ship after first published release. Build is `make && sudo make install` today (zero runtime deps).
@@ -123,8 +123,8 @@ BearSSL replaced libcurl — zero link-time deps beyond libc. Static musl single
 
 ## Non-goals (forever)
 
-- Slash commands (skills cover this; user-triggered templates belong in shell aliases or the one-shot `tiny_c "..."` mode)
-- Hooks (PreToolUse/PostToolUse/UserPromptSubmit/Stop — fork/pipe + JSON plumbing costs ~160 LOC and invites matcher/async feature creep; shell wrappers around `tiny_c` cover the real use cases)
+- Slash commands (skills cover this; user-triggered templates belong in shell aliases or the one-shot `sa "..."` mode)
+- Hooks (PreToolUse/PostToolUse/UserPromptSubmit/Stop — fork/pipe + JSON plumbing costs ~160 LOC and invites matcher/async feature creep; shell wrappers around `sa` cover the real use cases)
 - TUI / curses / ANSI painting beyond `\x1b[2m` dimming
 - MCP client
 - Sessions beyond per-cwd JSONL
