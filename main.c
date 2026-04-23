@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <signal.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -118,6 +119,198 @@ typedef struct {
     char raw_head[4096];
     size_t raw_head_len;
 } stream_state_t;
+
+static size_t on_chunk(char *ptr, size_t size, size_t nmemb, void *userdata);
+
+static int parse_url(const char *url, char *host, size_t host_sz, int *port, char *path, size_t path_sz) {
+    if (strncmp(url, "https://", 8) != 0) return -1;
+    const char *p = url + 8;
+    const char *slash = strchr(p, '/');
+    size_t hostlen = slash ? (size_t)(slash - p) : strlen(p);
+    if (hostlen == 0 || hostlen >= host_sz) return -1;
+    memcpy(host, p, hostlen);
+    host[hostlen] = 0;
+    *port = 443;
+    char *colon = strchr(host, ':');
+    if (colon) {
+        *colon = 0;
+        *port = atoi(colon + 1);
+        if (*port <= 0 || *port > 65535) return -1;
+    }
+    snprintf(path, path_sz, "%s", slash ? slash : "/");
+    return 0;
+}
+
+/* read bytes from ssl until we see \r\n\r\n; returns 0 on ok, -1 on err.
+   fills *status, and hdr[] with full header block (null-terminated). */
+static int http_read_headers(br_sslio_context *ioc, int *status, char *hdr, size_t hdr_sz, int *chunked, long *clen) {
+    size_t used = 0;
+    int blank_line_found = 0;
+    while (used + 1 < hdr_sz) {
+        unsigned char c;
+        int r = br_sslio_read(ioc, &c, 1);
+        if (r <= 0) return -1;
+        hdr[used++] = (char)c;
+        if (used >= 4 && memcmp(hdr + used - 4, "\r\n\r\n", 4) == 0) { blank_line_found = 1; break; }
+    }
+    if (!blank_line_found) return -1;
+    hdr[used] = 0;
+
+    /* status line: "HTTP/1.1 NNN ..." */
+    if (sscanf(hdr, "HTTP/1.%*d %d", status) != 1) return -1;
+
+    /* scan for Transfer-Encoding and Content-Length (case-insensitive prefix) */
+    *chunked = 0;
+    *clen = -1;
+    const char *line = hdr;
+    while (line && *line) {
+        const char *eol = strstr(line, "\r\n");
+        if (!eol) break;
+        if (strncasecmp(line, "transfer-encoding:", 18) == 0) {
+            if (strstr(line, "chunked")) *chunked = 1;
+        } else if (strncasecmp(line, "content-length:", 15) == 0) {
+            *clen = strtol(line + 15, NULL, 10);
+        }
+        line = eol + 2;
+    }
+    return 0;
+}
+
+/* Streams body to cb(userdata, bytes, n). Returns 0 on ok, -1 on err, -2 on interrupt. */
+static int http_stream_body(br_sslio_context *ioc, int chunked, long clen,
+                            size_t (*cb)(char *, size_t, size_t, void *), void *userdata) {
+    unsigned char buf[4096];
+    if (chunked) {
+        for (;;) {
+            if (g_interrupt) return -2;
+            /* read chunk size line */
+            char szline[32];
+            size_t sl = 0;
+            while (sl + 1 < sizeof szline) {
+                unsigned char c;
+                int r = br_sslio_read(ioc, &c, 1);
+                if (r <= 0) return -1;
+                szline[sl++] = (char)c;
+                if (sl >= 2 && szline[sl - 2] == '\r' && szline[sl - 1] == '\n') break;
+            }
+            szline[sl] = 0;
+            long n = strtol(szline, NULL, 16);
+            if (n < 0) return -1;
+            if (n == 0) {
+                /* trailing \r\n after final chunk */
+                unsigned char tr[2];
+                br_sslio_read(ioc, tr, 2);
+                return 0;
+            }
+            long remaining = n;
+            while (remaining > 0) {
+                if (g_interrupt) return -2;
+                size_t want = remaining > (long)sizeof buf ? sizeof buf : (size_t)remaining;
+                int r = br_sslio_read(ioc, buf, want);
+                if (r <= 0) return -1;
+                if (cb((char *)buf, 1, (size_t)r, userdata) != (size_t)r) return -1;
+                remaining -= r;
+            }
+            /* consume trailing \r\n */
+            unsigned char tr[2];
+            if (br_sslio_read(ioc, tr, 2) <= 0) return -1;
+        }
+    } else {
+        long read_total = 0;
+        for (;;) {
+            if (g_interrupt) return -2;
+            int r = br_sslio_read(ioc, buf, sizeof buf);
+            if (r < 0) return -1;
+            if (r == 0) break;
+            if (cb((char *)buf, 1, (size_t)r, userdata) != (size_t)r) return -1;
+            read_total += r;
+            if (clen >= 0 && read_total >= clen) break;
+        }
+        return 0;
+    }
+}
+
+/* POST body to url with x-api-key header; streams response body via on_chunk.
+   Captures first 4 KB of error body into err_head (null-terminated).
+   Returns 0 on HTTP 200, -1 on transport/HTTP error (sets *out_status if known),
+   -2 on SIGINT. */
+static int http_post_sse(const char *url, const char *api_key, const char *body,
+                         stream_state_t *st, int *out_status,
+                         char *err_head, size_t err_head_sz) {
+    char host[256], path[1024];
+    int port;
+    if (parse_url(url, host, sizeof host, &port, path, sizeof path) < 0) return -1;
+    char portstr[8];
+    snprintf(portstr, sizeof portstr, "%d", port);
+
+    int fd = tcp_connect(host, portstr, 10);
+    if (fd < 0) { fprintf(stderr, "\nconnect failed: %s\n", strerror(errno)); return -1; }
+
+    br_ssl_client_context sc;
+    br_x509_minimal_context xc;
+    unsigned char iobuf[BR_SSL_BUFSIZE_BIDI];
+    br_ssl_client_init_full(&sc, &xc, TAs, TAs_NUM);
+    br_ssl_engine_set_buffer(&sc.eng, iobuf, sizeof iobuf, 1);
+    br_ssl_client_reset(&sc, host, 0);
+
+    br_sslio_context ioc;
+    br_sslio_init(&ioc, &sc.eng, sock_read, &fd, sock_write, &fd);
+
+    char req[4096];
+    int rl = snprintf(req, sizeof req,
+        "POST %s HTTP/1.1\r\n"
+        "Host: %s\r\n"
+        "User-Agent: tiny_c/0.1\r\n"
+        "Content-Type: application/json\r\n"
+        "Accept: text/event-stream\r\n"
+        "Anthropic-Version: 2023-06-01\r\n"
+        "X-API-Key: %s\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: close\r\n"
+        "\r\n",
+        path, host, api_key, strlen(body));
+    if (rl < 0 || (size_t)rl >= sizeof req) { close(fd); return -1; }
+
+    if (br_sslio_write_all(&ioc, (const unsigned char *)req, rl) < 0) goto fail;
+    if (br_sslio_write_all(&ioc, (const unsigned char *)body, strlen(body)) < 0) goto fail;
+    if (br_sslio_flush(&ioc) < 0) goto fail;
+
+    int status = 0, chunked = 0;
+    long clen = -1;
+    char hdr[8192];
+    if (http_read_headers(&ioc, &status, hdr, sizeof hdr, &chunked, &clen) < 0) goto fail;
+    if (out_status) *out_status = status;
+
+    if (status != 200) {
+        /* capture up to err_head_sz-1 bytes of body for the caller's raw_head */
+        size_t used = 0;
+        if (err_head && err_head_sz > 1) {
+            unsigned char buf[512];
+            while (used + 1 < err_head_sz) {
+                int r = br_sslio_read(&ioc, buf, sizeof buf);
+                if (r <= 0) break;
+                size_t take = (size_t)r < err_head_sz - 1 - used ? (size_t)r : err_head_sz - 1 - used;
+                memcpy(err_head + used, buf, take);
+                used += take;
+            }
+            err_head[used] = 0;
+        }
+        br_sslio_close(&ioc);
+        close(fd);
+        return -1;
+    }
+
+    int r = http_stream_body(&ioc, chunked, clen, on_chunk, st);
+    br_sslio_close(&ioc);
+    close(fd);
+    if (r == -2) return -2;
+    if (r < 0) return -1;
+    return 0;
+
+fail:
+    close(fd);
+    return -1;
+}
 
 static void block_overflow_warn(int idx) {
     static int warned = 0;
