@@ -2,7 +2,7 @@
 
 Minimal suckless-style agent in C. One binary, one config file, no runtime.
 
-Working name: `tiny_c`. Rename before 0.1.
+Name: `sa` (simple/suckless agent).
 
 ## Thesis
 
@@ -13,7 +13,7 @@ Reference category: `rg`, `fd`, `dmenu`, `jq`. Not `claude-code`, not `aider`, n
 ## Targets
 
 - LOC budget: < 1200 lines (`wc -l` on `main.c`, suckless convention — blanks and comments included)
-- Binary size: < 60 KB (dynamic link against libcurl + libcjson, macOS or Linux)
+- Binary size: < 200 KB (static link with vendored BearSSL, macOS or Linux)
 - Cold start: < 20 ms
 - Resident memory: < 10 MB
 - Runs on: Pi Zero 2 W, any machine with libcurl
@@ -36,8 +36,8 @@ Reference category: `rg`, `fd`, `dmenu`, `jq`. Not `claude-code`, not `aider`, n
 - Content-block accumulator (text, tool_use, thinking)
 - `shell` tool with combined stdout+stderr and exit code
 - SIGINT aborts stream cleanly (`CURLE_WRITE_ERROR` path)
-- Env vars: `KIMI_TOKEN`, `KIMI_BASE_URL`, `MODEL`, `TINY_DEBUG`
-- Session continuation: `.tiny_c_session.jsonl` in cwd, `-c` / `--continue`
+- Env vars: `KIMI_TOKEN`, `KIMI_BASE_URL`, `MODEL`, `SA_DEBUG`
+- Session continuation: `.sa_session.jsonl` in cwd, `-c` / `--continue`
 
 ### 0.2 — Core tools — done
 
@@ -117,9 +117,9 @@ Done:
 - `.gitignore` for `config.h`, `tiny_c` binary, session file
 
 Pending:
-- Homebrew formula — requires a public tarball/git URL. Ship after first published release. Users can `brew install curl cjson && make && sudo make install` today.
+- Homebrew formula — requires a public tarball/git URL. Ship after first published release. Build is `make && sudo make install` today (zero runtime deps).
 
-BearSSL replaced libcurl on the `bearssl` branch — zero link-time deps beyond libc. Static musl single-binary builds are now viable.
+BearSSL replaced libcurl — zero link-time deps beyond libc. Static musl single-binary builds are now viable.
 
 ## Non-goals (forever)
 
@@ -152,15 +152,15 @@ Zero runtime deps beyond libc.
 - Tarball or `git clone`
 - Build: `make` (first build copies `config.def.h` to `config.h` and builds BearSSL)
 - Install: `sudo make install`
-- Remove: `sudo make uninstall` (or `rm /usr/local/bin/tiny_c`)
+- Remove: `sudo make uninstall` (or `rm /usr/local/bin/sa`)
 
 ## What this explicitly is not
 
-- Not a Claude Code replacement. See Alfred.
+- Not a Claude Code replacement.
 - Not a framework. No extension points beyond `config.h` and patches.
 - Not a library. `main.c` is the product.
 - Not a service. One-shot invocation, exits.
 
 ## Naming
 
-Current working name `tiny_c` is a placeholder. Before 0.1 ship, pick a name that signals the category (Unix CLI tool, not app): `sa`, `ca`, `ag`, etc. Two letters preferred.
+Name is `sa` (simple/suckless agent). Two letters, Unix tool category.
