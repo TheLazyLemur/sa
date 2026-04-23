@@ -12,11 +12,11 @@ Reference category: `rg`, `fd`, `dmenu`, `jq`. Not `claude-code`, not `aider`, n
 
 ## Targets
 
-- LOC budget: < 1200 lines (`wc -l` on `main.c`, suckless convention — blanks and comments included)
+- LOC budget: < 1500 lines (`wc -l` on `main.c`, suckless convention — blanks and comments included). Bumped from 1200 after 0.5 hardening landed and BearSSL merged into core; still well under `dwm` (~2200).
 - Binary size: < 200 KB (static link with vendored BearSSL, macOS or Linux)
 - Cold start: < 20 ms
 - Resident memory: < 10 MB
-- Runs on: Pi Zero 2 W, any machine with libcurl
+- Runs on: Pi Zero 2 W, any POSIX-ish box
 - Single `main.c` + `config.h` + `Makefile`. No build system, no package manager.
 
 ## Philosophy

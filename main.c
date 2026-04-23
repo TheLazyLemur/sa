@@ -22,6 +22,7 @@
 
 static volatile sig_atomic_t g_interrupt = 0;
 static int g_debug = 0;
+static int g_json = 0;
 static void on_sigint(int sig) { (void)sig; g_interrupt = 1; }
 
 /* --- buf_t --- */
@@ -356,8 +357,7 @@ static void handle_event(stream_state_t *st, const char *json_str) {
                     size_t room = MAX_BLOCK_SIZE - b->text.len;
                     size_t take = tl < room ? tl : room;
                     buf_append(&b->text, txt, take);
-                    fwrite(txt, 1, take, stdout);
-                    fflush(stdout);
+                    if (!g_json) { fwrite(txt, 1, take, stdout); fflush(stdout); }
                     if (take < tl) fprintf(stderr, "\n[text block capped at %u bytes]\n", (unsigned)MAX_BLOCK_SIZE);
                 }
             } else if (strcmp(dt, "input_json_delta") == 0) {
@@ -912,11 +912,12 @@ static void build_system_prompt(buf_t *out) {
 
 /* --- session --- */
 static void session_append(cJSON *msg) {
-    FILE *f = fopen(SESSION_PATH, "a");
-    if (!f) return;
     char *s = cJSON_PrintUnformatted(msg);
-    if (s) { fputs(s, f); fputc('\n', f); free(s); }
-    fclose(f);
+    if (!s) return;
+    if (g_json) { puts(s); fflush(stdout); }
+    FILE *f = fopen(SESSION_PATH, "a");
+    if (f) { fputs(s, f); fputc('\n', f); fclose(f); }
+    free(s);
 }
 
 static void session_rewrite(cJSON *messages) {
@@ -1165,9 +1166,11 @@ static cJSON *make_edit_file_tool(void) {
 int main(int argc, char **argv) {
     int continue_flag = 0;
     int arg_start = 1;
-    if (argc > 1 && (strcmp(argv[1], "-c") == 0 || strcmp(argv[1], "--continue") == 0)) {
-        continue_flag = 1;
-        arg_start = 2;
+    while (arg_start < argc) {
+        if (strcmp(argv[arg_start], "-c") == 0 || strcmp(argv[arg_start], "--continue") == 0) continue_flag = 1;
+        else if (strcmp(argv[arg_start], "--json") == 0) g_json = 1;
+        else break;
+        arg_start++;
     }
 
     const char *api_key = getenv("KIMI_TOKEN");
