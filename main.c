@@ -634,6 +634,34 @@ static char *edit_file_tool(const char *path, const char *old_str, const char *n
     return result;
 }
 
+static char *dispatch_tool(const char *name, cJSON *input) {
+    if (strcmp(name, "shell") == 0) {
+        const char *cmd = cJSON_GetStringValue(cJSON_GetObjectItem(input, "cmd"));
+        if (!cmd) return strdup("error: shell requires cmd");
+        fprintf(stderr, "\n\x1b[2m[shell] %s\x1b[0m\n", cmd);
+        return run_shell(cmd);
+    }
+    if (strcmp(name, "edit_file") == 0) {
+        const char *path = cJSON_GetStringValue(cJSON_GetObjectItem(input, "path"));
+        const char *os = cJSON_GetStringValue(cJSON_GetObjectItem(input, "old_string"));
+        const char *ns = cJSON_GetStringValue(cJSON_GetObjectItem(input, "new_string"));
+        if (!path || !os || !ns) return strdup("error: edit_file requires path, old_string, new_string");
+        fprintf(stderr, "\n\x1b[2m[edit_file] %s (%s)\x1b[0m\n", path, os[0] ? "replace" : "write");
+        return edit_file_tool(path, os, ns);
+    }
+    if (strcmp(name, "read_file") == 0) {
+        const char *path = cJSON_GetStringValue(cJSON_GetObjectItem(input, "path"));
+        cJSON *joff = cJSON_GetObjectItem(input, "offset");
+        cJSON *jlim = cJSON_GetObjectItem(input, "limit");
+        long offset = cJSON_IsNumber(joff) ? (long)joff->valuedouble : 1;
+        long limit  = cJSON_IsNumber(jlim) ? (long)jlim->valuedouble : 2000;
+        if (!path) return strdup("error: read_file requires path");
+        fprintf(stderr, "\n\x1b[2m[read_file] %s (offset=%ld limit=%ld)\x1b[0m\n", path, offset, limit);
+        return read_file_tool(path, offset, limit);
+    }
+    return strdup("error: unknown tool");
+}
+
 /* --- skills --- */
 typedef struct {
     char name[128];
@@ -1033,37 +1061,7 @@ static int chat_turn(const char *url, const char *api_key, const char *model,
 
             cJSON *input = cJSON_Parse(b->partial.len > 0 ? b->partial.data : "{}");
 
-            char *out;
-            if (strcmp(b->name, "shell") == 0) {
-                const char *cmd = cJSON_GetStringValue(cJSON_GetObjectItem(input, "cmd"));
-                if (!cmd) out = strdup("error: shell requires cmd");
-                else {
-                    fprintf(stderr, "\n\x1b[2m[shell] %s\x1b[0m\n", cmd);
-                    out = run_shell(cmd);
-                }
-            } else if (strcmp(b->name, "edit_file") == 0) {
-                const char *path = cJSON_GetStringValue(cJSON_GetObjectItem(input, "path"));
-                const char *os = cJSON_GetStringValue(cJSON_GetObjectItem(input, "old_string"));
-                const char *ns = cJSON_GetStringValue(cJSON_GetObjectItem(input, "new_string"));
-                if (!path || !os || !ns) out = strdup("error: edit_file requires path, old_string, new_string");
-                else {
-                    fprintf(stderr, "\n\x1b[2m[edit_file] %s (%s)\x1b[0m\n", path, os[0] ? "replace" : "write");
-                    out = edit_file_tool(path, os, ns);
-                }
-            } else if (strcmp(b->name, "read_file") == 0) {
-                const char *path = cJSON_GetStringValue(cJSON_GetObjectItem(input, "path"));
-                cJSON *joff = cJSON_GetObjectItem(input, "offset");
-                cJSON *jlim = cJSON_GetObjectItem(input, "limit");
-                long offset = cJSON_IsNumber(joff) ? (long)joff->valuedouble : 1;
-                long limit  = cJSON_IsNumber(jlim) ? (long)jlim->valuedouble : 2000;
-                if (!path) out = strdup("error: read_file requires path");
-                else {
-                    fprintf(stderr, "\n\x1b[2m[read_file] %s (offset=%ld limit=%ld)\x1b[0m\n", path, offset, limit);
-                    out = read_file_tool(path, offset, limit);
-                }
-            } else {
-                out = strdup("error: unknown tool");
-            }
+            char *out = dispatch_tool(b->name, input);
             cJSON_Delete(input);
 
             cJSON *res = cJSON_CreateObject();
