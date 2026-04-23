@@ -11,9 +11,8 @@ endif
 
 CFLAGS  = -Wall -Wextra -Os -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -ffunction-sections -fdata-sections \
-          -Ibearssl/inc \
-          $(shell curl-config --cflags)
-LDLIBS  = bearssl/build/libbearssl.a $(shell curl-config --libs)
+          -Ibearssl/inc
+LDLIBS  = bearssl/build/libbearssl.a
 
 tiny_c: main.c config.h ca.h bearssl/build/libbearssl.a
 	$(CC) $(CFLAGS) $(LDFLAGS) main.c -o $@ $(LDLIBS)

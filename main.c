@@ -9,7 +9,6 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <errno.h>
-#include <curl/curl.h>
 #include "tinyjson.h"
 #include <netdb.h>
 #include <sys/socket.h>
@@ -1190,9 +1189,6 @@ int main(int argc, char **argv) {
     sa.sa_flags = 0;
     sigaction(SIGINT, &sa, NULL);
 
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-    CURL *curl = curl_easy_init();
-
     scan_skills_dir("./.claude/skills");
     scan_rules_dir("./.claude/rules");
     const char *home = getenv("HOME");
@@ -1263,7 +1259,5 @@ int main(int argc, char **argv) {
     cJSON_Delete(tools);
     buf_free(&sys);
     for (int i = 0; i < g_rule_count; i++) free(g_rules[i].content);
-    curl_easy_cleanup(curl);
-    curl_global_cleanup();
     return rc;
 }
