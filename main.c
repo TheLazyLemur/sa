@@ -10,6 +10,11 @@
 #include <errno.h>
 #include <curl/curl.h>
 #include "tinyjson.h"
+#include <netdb.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <fcntl.h>
+#include <sys/select.h>
 
 #include "config.h"
 
@@ -37,6 +42,42 @@ static void buf_append(buf_t *b, const char *s, size_t n) {
 }
 static void buf_reset(buf_t *b) { b->len = 0; if (b->data) b->data[0] = 0; }
 static void buf_free(buf_t *b) { free(b->data); b->data = NULL; b->len = b->cap = 0; }
+
+/* --- net --- */
+static int tcp_connect(const char *host, const char *port, int timeout_sec) {
+    struct addrinfo hints = {0}, *res = NULL, *rp;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, port, &hints, &res) != 0) return -1;
+    int fd = -1;
+    for (rp = res; rp; rp = rp->ai_next) {
+        fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) continue;
+        int flags = fcntl(fd, F_GETFL, 0);
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        int rc = connect(fd, rp->ai_addr, rp->ai_addrlen);
+        if (rc == 0) { fcntl(fd, F_SETFL, flags); break; }
+        if (errno != EINPROGRESS) { close(fd); fd = -1; continue; }
+        fd_set wfds;
+        FD_ZERO(&wfds);
+        FD_SET(fd, &wfds);
+        struct timeval tv = { timeout_sec, 0 };
+        int sr = select(fd + 1, NULL, &wfds, NULL, &tv);
+        if (sr <= 0) { close(fd); fd = -1; continue; }
+        int err = 0;
+        socklen_t el = sizeof err;
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &el);
+        if (err != 0) { close(fd); fd = -1; continue; }
+        fcntl(fd, F_SETFL, flags);
+        break;
+    }
+    freeaddrinfo(res);
+    if (fd < 0) return -1;
+    struct timeval rt = { 30, 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rt, sizeof rt);
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &rt, sizeof rt);
+    return fd;
+}
 
 /* --- stream --- */
 typedef struct {
