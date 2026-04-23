@@ -15,6 +15,8 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <sys/select.h>
+#include "bearssl.h"
+#include "ca.h"
 
 #include "config.h"
 
@@ -77,6 +79,26 @@ static int tcp_connect(const char *host, const char *port, int timeout_sec) {
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rt, sizeof rt);
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &rt, sizeof rt);
     return fd;
+}
+
+static int sock_read(void *ctx, unsigned char *buf, size_t len) {
+    int fd = *(int *)ctx;
+    for (;;) {
+        ssize_t n = recv(fd, buf, len, 0);
+        if (n >= 0) return (int)n;
+        if (errno == EINTR) continue;
+        return -1;
+    }
+}
+
+static int sock_write(void *ctx, const unsigned char *buf, size_t len) {
+    int fd = *(int *)ctx;
+    for (;;) {
+        ssize_t n = send(fd, buf, len, 0);
+        if (n >= 0) return (int)n;
+        if (errno == EINTR) continue;
+        return -1;
+    }
 }
 
 /* --- stream --- */
