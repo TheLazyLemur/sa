@@ -1,6 +1,5 @@
 config.h
-tiny_c
-.tiny_c_session.jsonl
+.sa_session.jsonl
 *.o
 bearssl/build/
 bearssl/obj/
