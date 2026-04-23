@@ -1,5 +1,6 @@
 CC ?= clang
 PREFIX ?= /usr/local
+CA_PEM ?= /etc/ssl/cert.pem
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -10,15 +11,23 @@ endif
 
 CFLAGS  = -Wall -Wextra -Os -fno-unwind-tables -fno-asynchronous-unwind-tables \
           -ffunction-sections -fdata-sections \
-          $(shell curl-config --cflags)
-LDLIBS  = $(shell curl-config --libs)
+          -Ibearssl/inc
+LDLIBS  = bearssl/build/libbearssl.a
 
-tiny_c: main.c config.h
+tiny_c: main.c config.h ca.h bearssl/build/libbearssl.a
 	$(CC) $(CFLAGS) $(LDFLAGS) main.c -o $@ $(LDLIBS)
 	strip $@
 
 config.h: config.def.h
 	cp config.def.h $@
+
+bearssl/build/libbearssl.a:
+	cd bearssl && $(MAKE) CC=$(CC)
+
+bearssl/build/brssl: bearssl/build/libbearssl.a
+
+ca.h: bearssl/build/brssl
+	./bearssl/build/brssl ta $(CA_PEM) > $@
 
 install: tiny_c
 	install -d $(DESTDIR)$(PREFIX)/bin
@@ -29,5 +38,6 @@ uninstall:
 
 clean:
 	rm -f tiny_c
+	cd bearssl && $(MAKE) clean
 
 .PHONY: clean install uninstall

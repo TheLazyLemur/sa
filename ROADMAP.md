@@ -119,7 +119,7 @@ Done:
 Pending:
 - Homebrew formula — requires a public tarball/git URL. Ship after first published release. Users can `brew install curl cjson && make && sudo make install` today.
 
-Static musl single-binary build deliberately skipped — libcurl's TLS stack pulls in 1–2 MB statically, defeating the "tiny" thesis. Users who need a hermetic binary can ship a `patches/add-bearssl.diff` that drops libcurl for a hand-rolled BearSSL HTTPS client (+~200 LOC).
+BearSSL replaced libcurl on the `bearssl` branch — zero link-time deps beyond libc. Static musl single-binary builds are now viable.
 
 ## Non-goals (forever)
 
@@ -140,16 +140,17 @@ Static musl single-binary build deliberately skipped — libcurl's TLS stack pul
 
 ## Dependencies
 
-- `libcurl` — HTTPS, SSE. Not replaceable without a TLS lib.
-- `libcjson` — JSON parse/build. Candidate for removal post-0.6 if the hand-rolled version is cleaner.
+- `libc` — baseline.
+- `BearSSL` — vendored at `bearssl/`, statically linked. Public domain. Regenerate `ca.h` from the system CA bundle via `make ca.h`.
+- `tinyjson.h` — hand-rolled, in-tree. No external JSON lib.
 
-Zero runtime deps beyond these two dylibs.
+Zero runtime deps beyond libc.
 
 ## Distribution
 
-- Source: `main.c` + `config.def.h` + `Makefile` + `README` + `ROADMAP.md`
+- Source: `main.c` + `tinyjson.h` + `config.def.h` + `Makefile` + `ca.h` + `bearssl/` (vendored) + `README` + `ROADMAP.md`
 - Tarball or `git clone`
-- Build: `cp config.def.h config.h && make`
+- Build: `make` (first build copies `config.def.h` to `config.h` and builds BearSSL)
 - Install: `sudo make install`
 - Remove: `sudo make uninstall` (or `rm /usr/local/bin/tiny_c`)
 

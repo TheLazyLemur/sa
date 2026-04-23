@@ -3,5 +3,4 @@ CompileFlags:
     - -Wall
     - -Wextra
     - -D_POSIX_C_SOURCE=200809L
-    - -I/opt/homebrew/Cellar/cjson/1.7.19/include
-    - -I/opt/homebrew/Cellar/cjson/1.7.19/include/cjson
+    - -Ibearssl/inc

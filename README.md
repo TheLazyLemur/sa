@@ -2,29 +2,16 @@
 
 A suckless-style streaming agent in C. One binary, one config file, no runtime.
 
-~1000 lines of portable C against libcurl and libcjson. Talks to any Anthropic-compatible `/v1/messages` endpoint (Kimi, Anthropic direct). No JS runtime, no React reconciler, no framework.
+~1000 lines of portable C, zero link-time deps beyond libc (BearSSL vendored, statically linked). Talks to any Anthropic-compatible `/v1/messages` endpoint (Kimi, Anthropic direct). No JS runtime, no React reconciler, no framework.
 
 See `ROADMAP.md` for the thesis and philosophy.
 
 ## Build
 
-Requires libcurl and libcjson dev headers.
+No runtime deps beyond libc. BearSSL is vendored at `bearssl/` and statically linked.
 
 ```sh
-# macOS
-brew install curl cjson
-make && sudo make install
-
-# Debian / Ubuntu
-sudo apt install build-essential libcurl4-openssl-dev libcjson-dev pkg-config
-make && sudo make install
-
-# Alpine
-apk add build-base curl-dev cjson-dev pkgconfig
-make && sudo make install
-
-# Arch
-sudo pacman -S base-devel curl cjson pkgconf
+# any Unix with a C compiler and make
 make && sudo make install
 ```
 

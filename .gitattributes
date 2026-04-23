@@ -1,0 +1,3 @@
+bearssl/** linguist-vendored
+tinyjson.h linguist-vendored
+ca.h linguist-generated
