@@ -1,10 +1,25 @@
 --- a/main.c
 +++ b/main.c
-@@ -368,6 +368,15 @@
-                     size_t take = pjl < room ? pjl : room;
+@@ -109,6 +109,7 @@
+     char name[64];
+     buf_t text;
+     buf_t partial;
++    buf_t signature;
+ } block_t;
+ 
+ typedef struct {
+@@ -335,6 +336,7 @@
+             b->type[0] = b->id[0] = b->name[0] = 0;
+             buf_reset(&b->text);
+             buf_reset(&b->partial);
++            buf_reset(&b->signature);
+             const char *s;
+             if ((s = cJSON_GetStringValue(cJSON_GetObjectItem(cb, "type")))) { strncpy(b->type, s, sizeof b->type - 1); b->type[sizeof b->type - 1] = 0; }
+             if ((s = cJSON_GetStringValue(cJSON_GetObjectItem(cb, "id"))))   { strncpy(b->id, s, sizeof b->id - 1); b->id[sizeof b->id - 1] = 0; }
+@@ -369,6 +371,18 @@
                      buf_append(&b->partial, pj, take);
                      if (take < pjl) fprintf(stderr, "\n[tool input capped at %u bytes]\n", (unsigned)MAX_BLOCK_SIZE);
-+                }
+                 }
 +            } else if (strcmp(dt, "thinking_delta") == 0) {
 +                const char *th = cJSON_GetStringValue(cJSON_GetObjectItem(d, "thinking"));
 +                if (th && b->text.len < MAX_BLOCK_SIZE) {
@@ -13,18 +28,32 @@
 +                    size_t take = tl < room ? tl : room;
 +                    buf_append(&b->text, th, take);
 +                    if (!g_json) { fprintf(stderr, "\x1b[2m%.*s\x1b[0m", (int)take, th); fflush(stderr); }
-                 }
++                }
++            } else if (strcmp(dt, "signature_delta") == 0) {
++                const char *sg = cJSON_GetStringValue(cJSON_GetObjectItem(d, "signature"));
++                if (sg) buf_append(&b->signature, sg, strlen(sg));
              }
          }
-@@ -415,6 +424,7 @@
-     for (int i = 0; i < st->n; i++) {
-         block_t *b = &st->blocks[i];
-         if (!b->type[0]) continue;
-+        if (strcmp(b->type, "thinking") == 0) continue;
-         cJSON *obj = cJSON_CreateObject();
+     } else if (strcmp(t, "error") == 0) {
+@@ -419,6 +433,9 @@
          cJSON_AddStringToObject(obj, "type", b->type);
          if (strcmp(b->type, "text") == 0) {
-@@ -993,7 +1003,21 @@
+             cJSON_AddStringToObject(obj, "text", b->text.data ? b->text.data : "");
++        } else if (strcmp(b->type, "thinking") == 0) {
++            cJSON_AddStringToObject(obj, "thinking", b->text.data ? b->text.data : "");
++            cJSON_AddStringToObject(obj, "signature", b->signature.data ? b->signature.data : "");
+         } else if (strcmp(b->type, "tool_use") == 0) {
+             cJSON_AddStringToObject(obj, "id", b->id);
+             cJSON_AddStringToObject(obj, "name", b->name);
+@@ -435,6 +452,7 @@
+     for (int i = 0; i < MAX_BLOCKS; i++) {
+         buf_free(&st->blocks[i].text);
+         buf_free(&st->blocks[i].partial);
++        buf_free(&st->blocks[i].signature);
+     }
+     buf_free(&st->line);
+ }
+@@ -993,7 +1011,21 @@
  
          cJSON *req = cJSON_CreateObject();
          cJSON_AddStringToObject(req, "model", model);
@@ -47,17 +76,3 @@
          cJSON_AddStringToObject(req, "system", system_prompt);
          cJSON_AddItemReferenceToObject(req, "messages", messages);
          cJSON_AddItemReferenceToObject(req, "tools", tools);
-@@ -1023,6 +1047,13 @@
- 
-         cJSON *assist = cJSON_CreateObject();
-         cJSON_AddStringToObject(assist, "role", "assistant");
-+        buf_t reasoning = {0};
-+        for (int i = 0; i < st.n; i++) {
-+            block_t *b = &st.blocks[i];
-+            if (strcmp(b->type, "thinking") == 0 && b->text.len > 0) buf_append(&reasoning, b->text.data, b->text.len);
-+        }
-+        if (reasoning.len > 0) cJSON_AddStringToObject(assist, "reasoning_content", reasoning.data);
-+        buf_free(&reasoning);
-         cJSON_AddItemToObject(assist, "content", blocks_to_content(&st));
-         cJSON_AddItemToArray(messages, assist);
-         session_append(assist);
