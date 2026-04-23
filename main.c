@@ -473,6 +473,38 @@ static int do_turn(const char *url, const char *api_key, const char *req_json, s
     return 0;
 }
 
+/* --- tool schemas --- */
+static void add_prop(cJSON *props, const char *name, const char *type) {
+    cJSON *p = cJSON_CreateObject();
+    cJSON_AddStringToObject(p, "type", type);
+    cJSON_AddItemToObject(props, name, p);
+}
+
+static void add_required(cJSON *schema, const char *name) {
+    cJSON *a = cJSON_GetObjectItem(schema, "required");
+    if (!a) { a = cJSON_CreateArray(); cJSON_AddItemToObject(schema, "required", a); }
+    cJSON_AddItemToArray(a, cJSON_CreateString(name));
+}
+
+static cJSON *make_tool(const char *name, const char *desc) {
+    cJSON *t = cJSON_CreateObject();
+    cJSON_AddStringToObject(t, "name", name);
+    cJSON_AddStringToObject(t, "description", desc);
+    cJSON *schema = cJSON_CreateObject();
+    cJSON_AddStringToObject(schema, "type", "object");
+    cJSON_AddItemToObject(schema, "properties", cJSON_CreateObject());
+    cJSON_AddItemToObject(t, "input_schema", schema);
+    return t;
+}
+
+static cJSON *tool_props(cJSON *tool) {
+    return cJSON_GetObjectItem(cJSON_GetObjectItem(tool, "input_schema"), "properties");
+}
+
+static cJSON *tool_schema(cJSON *tool) {
+    return cJSON_GetObjectItem(tool, "input_schema");
+}
+
 /* --- tools --- */
 static char *run_shell(const char *cmd) {
     buf_t out = {0};
@@ -501,6 +533,13 @@ static char *run_shell(const char *cmd) {
     char *s = strdup(out.data);
     buf_free(&out);
     return s;
+}
+
+static cJSON *make_shell_tool(void) {
+    cJSON *t = make_tool("shell", "Run a shell command via /bin/sh -c. Returns combined stdout+stderr and exit code.");
+    add_prop(tool_props(t), "cmd", "string");
+    add_required(tool_schema(t), "cmd");
+    return t;
 }
 
 static char *read_file_tool(const char *path, long offset, long limit) {
@@ -556,6 +595,16 @@ static char *read_file_tool(const char *path, long offset, long limit) {
     char *s = strdup(out.data);
     buf_free(&out);
     return s;
+}
+
+static cJSON *make_read_file_tool(void) {
+    cJSON *t = make_tool("read_file", "Read a text file. Returns up to 'limit' lines starting from 'offset' (1-indexed), each prefixed with line number + tab. Default limit 2000. Hard cap 256KB. For larger files, page through with offset.");
+    cJSON *props = tool_props(t);
+    add_prop(props, "path", "string");
+    add_prop(props, "offset", "integer");
+    add_prop(props, "limit", "integer");
+    add_required(tool_schema(t), "path");
+    return t;
 }
 
 static char *atomic_write(const char *path, const char *content, size_t len) {
@@ -632,6 +681,18 @@ static char *edit_file_tool(const char *path, const char *old_str, const char *n
     char *result = atomic_write(path, buf, new_sz);
     free(buf);
     return result;
+}
+
+static cJSON *make_edit_file_tool(void) {
+    cJSON *t = make_tool("edit_file", "Edit a file. If 'old_string' is empty, write 'new_string' as the full file contents (creates or overwrites). Otherwise, 'old_string' must appear exactly once in the file and will be replaced with 'new_string'. Errors on 0 or >1 matches. Atomic via .tmp + rename. File size cap 4 MB.");
+    cJSON *props = tool_props(t);
+    add_prop(props, "path", "string");
+    add_prop(props, "old_string", "string");
+    add_prop(props, "new_string", "string");
+    add_required(tool_schema(t), "path");
+    add_required(tool_schema(t), "old_string");
+    add_required(tool_schema(t), "new_string");
+    return t;
 }
 
 static char *dispatch_tool(const char *name, cJSON *input) {
@@ -818,6 +879,7 @@ static void buf_append_xml_escaped(buf_t *out, const char *s) {
     }
 }
 
+/* --- rules --- */
 typedef struct {
     char path[1024];
     char paths[MAX_RULE_PATHS][256];
@@ -902,6 +964,7 @@ static void scan_rules_dir(const char *dir) {
     closedir(d);
 }
 
+/* --- system prompt --- */
 static void build_system_prompt(buf_t *out) {
     buf_append(out, BASE_SYSTEM, strlen(BASE_SYSTEM));
 
@@ -1094,66 +1157,6 @@ static cJSON *make_user_msg(const char *text) {
     cJSON_AddItemToArray(content, item);
     cJSON_AddItemToObject(msg, "content", content);
     return msg;
-}
-
-static void add_prop(cJSON *props, const char *name, const char *type) {
-    cJSON *p = cJSON_CreateObject();
-    cJSON_AddStringToObject(p, "type", type);
-    cJSON_AddItemToObject(props, name, p);
-}
-
-static void add_required(cJSON *schema, const char *name) {
-    cJSON *a = cJSON_GetObjectItem(schema, "required");
-    if (!a) { a = cJSON_CreateArray(); cJSON_AddItemToObject(schema, "required", a); }
-    cJSON_AddItemToArray(a, cJSON_CreateString(name));
-}
-
-static cJSON *make_tool(const char *name, const char *desc) {
-    cJSON *t = cJSON_CreateObject();
-    cJSON_AddStringToObject(t, "name", name);
-    cJSON_AddStringToObject(t, "description", desc);
-    cJSON *schema = cJSON_CreateObject();
-    cJSON_AddStringToObject(schema, "type", "object");
-    cJSON_AddItemToObject(schema, "properties", cJSON_CreateObject());
-    cJSON_AddItemToObject(t, "input_schema", schema);
-    return t;
-}
-
-static cJSON *tool_props(cJSON *tool) {
-    return cJSON_GetObjectItem(cJSON_GetObjectItem(tool, "input_schema"), "properties");
-}
-
-static cJSON *tool_schema(cJSON *tool) {
-    return cJSON_GetObjectItem(tool, "input_schema");
-}
-
-static cJSON *make_read_file_tool(void) {
-    cJSON *t = make_tool("read_file", "Read a text file. Returns up to 'limit' lines starting from 'offset' (1-indexed), each prefixed with line number + tab. Default limit 2000. Hard cap 256KB. For larger files, page through with offset.");
-    cJSON *props = tool_props(t);
-    add_prop(props, "path", "string");
-    add_prop(props, "offset", "integer");
-    add_prop(props, "limit", "integer");
-    add_required(tool_schema(t), "path");
-    return t;
-}
-
-static cJSON *make_shell_tool(void) {
-    cJSON *t = make_tool("shell", "Run a shell command via /bin/sh -c. Returns combined stdout+stderr and exit code.");
-    add_prop(tool_props(t), "cmd", "string");
-    add_required(tool_schema(t), "cmd");
-    return t;
-}
-
-static cJSON *make_edit_file_tool(void) {
-    cJSON *t = make_tool("edit_file", "Edit a file. If 'old_string' is empty, write 'new_string' as the full file contents (creates or overwrites). Otherwise, 'old_string' must appear exactly once in the file and will be replaced with 'new_string'. Errors on 0 or >1 matches. Atomic via .tmp + rename. File size cap 4 MB.");
-    cJSON *props = tool_props(t);
-    add_prop(props, "path", "string");
-    add_prop(props, "old_string", "string");
-    add_prop(props, "new_string", "string");
-    add_required(tool_schema(t), "path");
-    add_required(tool_schema(t), "old_string");
-    add_required(tool_schema(t), "new_string");
-    return t;
 }
 
 int main(int argc, char **argv) {
