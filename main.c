@@ -440,53 +440,24 @@ static void stream_state_free(stream_state_t *st) {
     buf_free(&st->line);
 }
 
-/* --- http --- */
-static int slist_add(struct curl_slist **lst, const char *s) {
-    struct curl_slist *n = curl_slist_append(*lst, s);
-    if (!n) return -1;
-    *lst = n;
-    return 0;
-}
+static int do_turn(const char *url, const char *api_key, const char *req_json, stream_state_t *st) {
+    int status = 0;
+    int r = http_post_sse(url, api_key, req_json, st, &status,
+                          st->raw_head, sizeof st->raw_head);
 
-static int do_turn(CURL *curl, const char *url, const char *api_key, const char *req_json, stream_state_t *st) {
-    struct curl_slist *hdr = NULL;
-    char auth[512];
-    int na = snprintf(auth, sizeof auth, "x-api-key: %s", api_key);
-    if (na < 0 || (size_t)na >= sizeof auth) { fprintf(stderr, "\napi key too long\n"); return -1; }
-    if (slist_add(&hdr, "content-type: application/json") < 0
-     || slist_add(&hdr, "anthropic-version: 2023-06-01") < 0
-     || slist_add(&hdr, "accept: text/event-stream") < 0
-     || slist_add(&hdr, auth) < 0) {
-        curl_slist_free_all(hdr);
-        fprintf(stderr, "\nslist alloc failed\n");
+    if (g_interrupt) return -2;
+    if (r == -2) return -2;
+
+    if (r < 0 && status == 0) {
+        fprintf(stderr, "\nhttp: transport error\n");
         return -1;
     }
 
-    curl_easy_reset(curl);
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdr);
-    curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    curl_easy_setopt(curl, CURLOPT_COPYPOSTFIELDS, req_json);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, on_chunk);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, st);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "tiny_c/0.1");
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
-    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
-
-    CURLcode rc = curl_easy_perform(curl);
-    curl_slist_free_all(hdr);
-
-    if (g_interrupt) return -2;
-    if (rc != CURLE_OK) { fprintf(stderr, "\ncurl: %s\n", curl_easy_strerror(rc)); return -1; }
-    long status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     if (status != 200) {
-        fprintf(stderr, "\napi status %ld\n", status);
+        fprintf(stderr, "\napi status %d\n", status);
         int context_err = 0;
-        if (st->raw_head_len > 0 && st->raw_head_len < sizeof st->raw_head) {
-            st->raw_head[st->raw_head_len] = 0;
+        if (st->raw_head[0]) {
+            /* raw_head may contain full HTTP body (JSON error) — try parse */
             cJSON *j = cJSON_Parse(st->raw_head);
             if (j) {
                 cJSON *e = cJSON_GetObjectItem(j, "error");
@@ -1015,7 +986,7 @@ static int session_load(cJSON *messages) {
 }
 
 /* --- chat turn --- */
-static int chat_turn(CURL *curl, const char *url, const char *api_key, const char *model,
+static int chat_turn(const char *url, const char *api_key, const char *model,
                      const char *system_prompt, cJSON *messages, cJSON *tools) {
     for (int iter = 0; iter < MAX_TOOL_ITER; iter++) {
         if (g_interrupt) return 130;
@@ -1032,7 +1003,7 @@ static int chat_turn(CURL *curl, const char *url, const char *api_key, const cha
         cJSON_Delete(req);
 
         stream_state_t st = {0};
-        int r = do_turn(curl, url, api_key, req_json, &st);
+        int r = do_turn(url, api_key, req_json, &st);
         free(req_json);
         fputc('\n', stdout);
 
@@ -1264,7 +1235,7 @@ int main(int argc, char **argv) {
         cJSON_AddItemToArray(messages, user_msg);
         session_append(user_msg);
         buf_free(&prompt);
-        rc = chat_turn(curl, url, api_key, model, system_prompt, messages, tools);
+        rc = chat_turn(url, api_key, model, system_prompt, messages, tools);
     } else {
         int is_tty = isatty(fileno(stdin));
         if (is_tty) fprintf(stderr, "tiny_c %s — Ctrl+D to exit, Ctrl+C to interrupt\n", model);
@@ -1283,7 +1254,7 @@ int main(int argc, char **argv) {
             cJSON *user_msg = make_user_msg(line);
             cJSON_AddItemToArray(messages, user_msg);
             session_append(user_msg);
-            int r = chat_turn(curl, url, api_key, model, system_prompt, messages, tools);
+            int r = chat_turn(url, api_key, model, system_prompt, messages, tools);
             if (r == 1) { rc = 1; break; }
         }
     }
