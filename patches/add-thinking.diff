@@ -1,0 +1,63 @@
+--- a/main.c
++++ b/main.c
+@@ -368,6 +368,15 @@
+                     size_t take = pjl < room ? pjl : room;
+                     buf_append(&b->partial, pj, take);
+                     if (take < pjl) fprintf(stderr, "\n[tool input capped at %u bytes]\n", (unsigned)MAX_BLOCK_SIZE);
++                }
++            } else if (strcmp(dt, "thinking_delta") == 0) {
++                const char *th = cJSON_GetStringValue(cJSON_GetObjectItem(d, "thinking"));
++                if (th && b->text.len < MAX_BLOCK_SIZE) {
++                    size_t tl = strlen(th);
++                    size_t room = MAX_BLOCK_SIZE - b->text.len;
++                    size_t take = tl < room ? tl : room;
++                    buf_append(&b->text, th, take);
++                    if (!g_json) { fprintf(stderr, "\x1b[2m%.*s\x1b[0m", (int)take, th); fflush(stderr); }
+                 }
+             }
+         }
+@@ -415,6 +424,7 @@
+     for (int i = 0; i < st->n; i++) {
+         block_t *b = &st->blocks[i];
+         if (!b->type[0]) continue;
++        if (strcmp(b->type, "thinking") == 0) continue;
+         cJSON *obj = cJSON_CreateObject();
+         cJSON_AddStringToObject(obj, "type", b->type);
+         if (strcmp(b->type, "text") == 0) {
+@@ -993,7 +1003,21 @@
+ 
+         cJSON *req = cJSON_CreateObject();
+         cJSON_AddStringToObject(req, "model", model);
+-        cJSON_AddNumberToObject(req, "max_tokens", 4096);
++        int think_budget = 0;
++        const char *tl = getenv("THINKING");
++        if (tl) {
++            if (strcmp(tl, "low") == 0)  think_budget = 1024;
++            else if (strcmp(tl, "med") == 0 || strcmp(tl, "medium") == 0) think_budget = 4096;
++            else if (strcmp(tl, "high") == 0) think_budget = 16000;
++        }
++        cJSON_AddNumberToObject(req, "max_tokens", think_budget ? think_budget + 4096 : 4096);
++        if (think_budget) {
++            cJSON *th = cJSON_CreateObject();
++            cJSON_AddStringToObject(th, "type", "enabled");
++            cJSON_AddNumberToObject(th, "budget_tokens", think_budget);
++            cJSON_AddItemToObject(req, "thinking", th);
++            cJSON_AddNumberToObject(req, "temperature", 1);
++        }
+         cJSON_AddStringToObject(req, "system", system_prompt);
+         cJSON_AddItemReferenceToObject(req, "messages", messages);
+         cJSON_AddItemReferenceToObject(req, "tools", tools);
+@@ -1023,6 +1047,13 @@
+ 
+         cJSON *assist = cJSON_CreateObject();
+         cJSON_AddStringToObject(assist, "role", "assistant");
++        buf_t reasoning = {0};
++        for (int i = 0; i < st.n; i++) {
++            block_t *b = &st.blocks[i];
++            if (strcmp(b->type, "thinking") == 0 && b->text.len > 0) buf_append(&reasoning, b->text.data, b->text.len);
++        }
++        if (reasoning.len > 0) cJSON_AddStringToObject(assist, "reasoning_content", reasoning.data);
++        buf_free(&reasoning);
+         cJSON_AddItemToObject(assist, "content", blocks_to_content(&st));
+         cJSON_AddItemToArray(messages, assist);
+         session_append(assist);
