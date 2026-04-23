@@ -118,6 +118,7 @@ typedef struct {
     int line_dropped;
     char raw_head[4096];
     size_t raw_head_len;
+    char stop_reason[32];
 } stream_state_t;
 
 static size_t on_chunk(char *ptr, size_t size, size_t nmemb, void *userdata);
@@ -371,6 +372,9 @@ static void handle_event(stream_state_t *st, const char *json_str) {
                 }
             }
         }
+    } else if (strcmp(t, "message_delta") == 0) {
+        const char *sr = cJSON_GetStringValue(cJSON_GetObjectItem(cJSON_GetObjectItem(evt, "delta"), "stop_reason"));
+        if (sr) { strncpy(st->stop_reason, sr, sizeof st->stop_reason - 1); st->stop_reason[sizeof st->stop_reason - 1] = 0; }
     } else if (strcmp(t, "error") == 0) {
         cJSON *err = cJSON_GetObjectItem(evt, "error");
         const char *msg = cJSON_GetStringValue(cJSON_GetObjectItem(err, "message"));
@@ -410,6 +414,8 @@ static size_t on_chunk(char *ptr, size_t size, size_t nmemb, void *userdata) {
     return n;
 }
 
+/* Returns NULL if any tool_use block is missing/malformed input JSON — caller
+ * must bail instead of persisting a turn that would poison the session. */
 static cJSON *blocks_to_content(stream_state_t *st) {
     cJSON *arr = cJSON_CreateArray();
     for (int i = 0; i < st->n; i++) {
@@ -423,7 +429,9 @@ static cJSON *blocks_to_content(stream_state_t *st) {
             cJSON_AddStringToObject(obj, "id", b->id);
             cJSON_AddStringToObject(obj, "name", b->name);
             cJSON *input = b->partial.len > 0 ? cJSON_Parse(b->partial.data) : NULL;
-            if (!input) input = cJSON_CreateObject();
+            if (!input || cJSON_GetArraySize(input) == 0) {
+                cJSON_Delete(input); cJSON_Delete(obj); cJSON_Delete(arr); return NULL;
+            }
             cJSON_AddItemToObject(obj, "input", input);
         }
         cJSON_AddItemToArray(arr, obj);
@@ -1071,6 +1079,32 @@ static int session_load(cJSON *messages) {
     return count;
 }
 
+/* Drop any assistant message that is a single tool_use with empty input
+ * plus the paired user tool_result that follows. */
+static int session_prune_empty_tool_use(cJSON *messages) {
+    int removed = 0;
+    for (int i = cJSON_GetArraySize(messages) - 1; i >= 0; i--) {
+        cJSON *msg = cJSON_GetArrayItem(messages, i);
+        const char *role = cJSON_GetStringValue(cJSON_GetObjectItem(msg, "role"));
+        cJSON *content = cJSON_GetObjectItem(msg, "content");
+        if (!role || strcmp(role, "assistant") != 0) continue;
+        if (!cJSON_IsArray(content) || cJSON_GetArraySize(content) != 1) continue;
+        cJSON *b = cJSON_GetArrayItem(content, 0);
+        const char *t = cJSON_GetStringValue(cJSON_GetObjectItem(b, "type"));
+        if (!t || strcmp(t, "tool_use") != 0) continue;
+        if (cJSON_GetArraySize(cJSON_GetObjectItem(b, "input")) > 0) continue;
+        cJSON_DeleteItemFromArray(messages, i);
+        removed++;
+        /* paired tool_result always directly follows — drop it too */
+        cJSON *nxt = cJSON_GetArrayItem(messages, i);
+        cJSON *nc  = nxt ? cJSON_GetObjectItem(nxt, "content") : NULL;
+        cJSON *nb  = (cJSON_IsArray(nc) && cJSON_GetArraySize(nc) == 1) ? cJSON_GetArrayItem(nc, 0) : NULL;
+        const char *nt = nb ? cJSON_GetStringValue(cJSON_GetObjectItem(nb, "type")) : NULL;
+        if (nt && strcmp(nt, "tool_result") == 0) { cJSON_DeleteItemFromArray(messages, i); removed++; }
+    }
+    return removed;
+}
+
 /* --- chat turn --- */
 static int chat_turn(const char *url, const char *api_key, const char *model,
                      const char *system_prompt, cJSON *messages, cJSON *tools) {
@@ -1107,9 +1141,16 @@ static int chat_turn(const char *url, const char *api_key, const char *model,
         if (r == -2) { fprintf(stderr, "\n[interrupted]\n"); stream_state_free(&st); return 130; }
         if (r < 0)   { stream_state_free(&st); return 1; }
 
+        cJSON *content = blocks_to_content(&st);
+        if (!content) {
+            fprintf(stderr, "\n[broken tool_use (stop_reason=%s) — discarding turn; retry]\n",
+                    st.stop_reason[0] ? st.stop_reason : "?");
+            stream_state_free(&st);
+            return 2;  /* transient; REPL stays, oneshot exits non-zero */
+        }
         cJSON *assist = cJSON_CreateObject();
         cJSON_AddStringToObject(assist, "role", "assistant");
-        cJSON_AddItemToObject(assist, "content", blocks_to_content(&st));
+        cJSON_AddItemToObject(assist, "content", content);
         cJSON_AddItemToArray(messages, assist);
         session_append(assist);
 
@@ -1209,7 +1250,15 @@ int main(int argc, char **argv) {
     if (continue_flag) {
         int loaded = session_load(messages);
         if (loaded < 0) fprintf(stderr, "[no prior session at " SESSION_PATH "]\n");
-        else fprintf(stderr, "[resumed %d messages]\n", loaded);
+        else {
+            int pruned = session_prune_empty_tool_use(messages);
+            if (pruned > 0) {
+                fprintf(stderr, "[session: healed %d poisoned tool_use/result block%s]\n",
+                        pruned, pruned == 1 ? "" : "s");
+                session_rewrite(messages);
+            }
+            fprintf(stderr, "[resumed %d messages]\n", cJSON_GetArraySize(messages));
+        }
     }
 
     cJSON *tools = cJSON_CreateArray();

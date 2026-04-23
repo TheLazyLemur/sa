@@ -61,6 +61,9 @@ static int cJSON_IsNumber(const cJSON *item);
 static int cJSON_IsArray(const cJSON *item);
 static int cJSON_IsString(const cJSON *item);
 
+/* ---- Detach / Delete in place ---- */
+static void cJSON_DeleteItemFromArray(cJSON *array, int index);
+
 /* ---- Mutate ---- */
 static char *cJSON_SetValuestring(cJSON *item, const char *valuestring);
 
@@ -186,6 +189,18 @@ static const char *cJSON_GetStringValue(const cJSON *item) {
 
 static int cJSON_IsNumber(const cJSON *item) { return item && item->type == cJSON_Number; }
 static int cJSON_IsArray(const cJSON *item)  { return item && item->type == cJSON_Array; }
+
+static void cJSON_DeleteItemFromArray(cJSON *array, int index) {
+    cJSON *c = cJSON_GetArrayItem(array, index);
+    if (!c) return;
+    if (c->prev) c->prev->next = c->next;
+    else array->child = c->next;
+    if (c->next) c->next->prev = c->prev;
+    c->next = NULL;
+    c->prev = NULL;
+    c->parent = NULL;
+    cJSON_Delete(c);
+}
 static int cJSON_IsString(const cJSON *item) { return item && item->type == cJSON_String; }
 
 static char *cJSON_SetValuestring(cJSON *item, const char *v) {
