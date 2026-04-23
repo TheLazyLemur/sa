@@ -560,14 +560,16 @@ static char *read_file_tool(const char *path, long offset, long limit) {
 
 static char *atomic_write(const char *path, const char *content, size_t len) {
     char tmp[1024];
-    int tn = snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    int tn = snprintf(tmp, sizeof tmp, "%s.tmp.XXXXXX", path);
     if (tn < 0 || (size_t)tn >= sizeof tmp) return strdup("error: path too long");
-    FILE *f = fopen(tmp, "w");
-    if (!f) {
+    int fd = mkstemp(tmp);
+    if (fd < 0) {
         char msg[512];
-        snprintf(msg, sizeof msg, "error: open %s: %s", tmp, strerror(errno));
+        snprintf(msg, sizeof msg, "error: mkstemp %s: %s", tmp, strerror(errno));
         return strdup(msg);
     }
+    FILE *f = fdopen(fd, "w");
+    if (!f) { close(fd); unlink(tmp); return strdup("error: fdopen failed"); }
     size_t wrote = fwrite(content, 1, len, f);
     int cerr = fclose(f);
     if (wrote != len || cerr != 0) { unlink(tmp); return strdup("error: write failed"); }
@@ -921,15 +923,18 @@ static void session_append(cJSON *msg) {
 }
 
 static void session_rewrite(cJSON *messages) {
-    FILE *f = fopen(SESSION_PATH ".tmp", "w");
-    if (!f) return;
+    char tmp[] = SESSION_PATH ".tmp.XXXXXX";
+    int fd = mkstemp(tmp);
+    if (fd < 0) return;
+    FILE *f = fdopen(fd, "w");
+    if (!f) { close(fd); unlink(tmp); return; }
     int n = cJSON_GetArraySize(messages);
     for (int i = 0; i < n; i++) {
         char *s = cJSON_PrintUnformatted(cJSON_GetArrayItem(messages, i));
         if (s) { fputs(s, f); fputc('\n', f); free(s); }
     }
     fclose(f);
-    rename(SESSION_PATH ".tmp", SESSION_PATH);
+    if (rename(tmp, SESSION_PATH) != 0) unlink(tmp);
 }
 
 static int compact_clear_tool_results(cJSON *messages, int keep_last_n) {
@@ -959,28 +964,18 @@ static int compact_clear_tool_results(cJSON *messages, int keep_last_n) {
 static int session_load(cJSON *messages) {
     FILE *f = fopen(SESSION_PATH, "r");
     if (!f) return -1;
-    buf_t line = {0};
-    int c;
+    char *line = NULL;
+    size_t cap = 0;
+    ssize_t n;
     int count = 0;
-    while ((c = fgetc(f)) != EOF) {
-        if (c == '\n') {
-            if (line.len > 0) {
-                cJSON *msg = cJSON_Parse(line.data);
-                if (msg) { cJSON_AddItemToArray(messages, msg); count++; }
-                else fprintf(stderr, "[session: malformed line skipped]\n");
-            }
-            buf_reset(&line);
-        } else {
-            char ch = (char)c;
-            buf_append(&line, &ch, 1);
-        }
-    }
-    if (line.len > 0) {
-        cJSON *msg = cJSON_Parse(line.data);
+    while ((n = getline(&line, &cap, f)) != -1) {
+        if (n > 0 && line[n - 1] == '\n') line[--n] = 0;
+        if (n == 0) continue;
+        cJSON *msg = cJSON_Parse(line);
         if (msg) { cJSON_AddItemToArray(messages, msg); count++; }
-        else fprintf(stderr, "[session: malformed trailing line skipped]\n");
+        else fprintf(stderr, "[session: malformed line skipped]\n");
     }
-    buf_free(&line);
+    free(line);
     fclose(f);
     return count;
 }
