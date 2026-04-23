@@ -1,5 +1,6 @@
 CC ?= clang
 PREFIX ?= /usr/local
+CA_PEM ?= /etc/ssl/cert.pem
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -19,6 +20,9 @@ tiny_c: main.c config.h
 
 config.h: config.def.h
 	cp config.def.h $@
+
+ca.h: bearssl/build/brssl
+	./bearssl/build/brssl ta $(CA_PEM) > $@
 
 install: tiny_c
 	install -d $(DESTDIR)$(PREFIX)/bin
